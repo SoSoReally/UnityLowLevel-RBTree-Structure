@@ -1,7 +1,7 @@
 using System;
 using System.Text;
-using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using static Unity.Collections.AllocatorManager;
 namespace RBTree
 {
     public struct IntCompare : IComparableIn<int>
@@ -87,24 +87,25 @@ namespace RBTree
     }
     public struct RBTreeLeft<T, TCompareTo> : IDisposable where T : unmanaged, IEquatable<T> where TCompareTo : unmanaged, IComparableIn<T>
     {
-        public int Root;
-        public UnsafeList<TreeNode<T>> List;
-        public UnsafeList<int> IndexQueue;
-        private UnsafeList<int> sortList;
-        private bool isDirtySort;
-        public UnsafeHashMap<T, int> Map;
-        public TCompareTo CompareTo;
+        private int Root;
+        private UnsafeList<TreeNode<T>> List; //å­˜å‚¨æ ‘èŠ‚ç‚¹çš„åˆ—è¡¨
+        private UnsafeList<int> IndexQueue; //å­˜å‚¨ç©ºé—²ç´¢å¼•çš„é˜Ÿåˆ—
+        private UnsafeList<int> sortList; //å­˜å‚¨æ’åºåçš„ç´¢å¼•åˆ—è¡¨
+        private bool isDirtySort; //æ˜¯å¦éœ€è¦é‡æ–°æ’åº
+        private UnsafeHashMap<T, int> Map; //å­˜å‚¨èŠ‚ç‚¹æ•°æ®åˆ°ç´¢å¼•çš„æ˜ å°„
+        private TCompareTo CompareTo;
         private int Count;
-        public RBTreeLeft(int bit)
+        public int Length => Count - 1;
+        public RBTreeLeft(int buffer, AllocatorHandle allocatorHandle)
         {
             isDirtySort = true;
-            List = new UnsafeList<TreeNode<T>>(bit, Allocator.Persistent);
-            List.Length = bit;
-            sortList = new UnsafeList<int>(bit, Allocator.Persistent);
-            sortList.Length = bit;
+            List = new UnsafeList<TreeNode<T>>(buffer, allocatorHandle);
+            List.Length = buffer;
+            sortList = new UnsafeList<int>(buffer, allocatorHandle);
+            sortList.Length = buffer;
             Count = 0;
-            IndexQueue = new UnsafeList<int>(bit, Allocator.Persistent);
-            Map = new UnsafeHashMap<T, int>(bit, Allocator.Persistent);
+            IndexQueue = new UnsafeList<int>(buffer, allocatorHandle);
+            Map = new UnsafeHashMap<T, int>(buffer, allocatorHandle);
             Root = 0;
             CompareTo = default;
             AddToCollection(TreeNode<T>.Null);
@@ -119,7 +120,7 @@ namespace RBTree
             }
         }
 
-        public ref TreeNode<T> CreatTreeNode(in T nodeData)
+        public ref TreeNode<T> CreateTreeNode(in T nodeData)
         {
             var Index = NextIndex();
             AddToCollection(new TreeNode<T>(nodeData)
@@ -146,10 +147,10 @@ namespace RBTree
         }
         private void AddToCollection(TreeNode<T> treeNode)
         {
-            if (List.Length<=treeNode.Index)
+            if (List.Length <= treeNode.Index)
             {
-                List.Resize(treeNode.Index*2);
-                sortList.Resize(treeNode.Index*2);
+                List.Resize(treeNode.Index * 2);
+                sortList.Resize(treeNode.Index * 2);
             }
             List[treeNode.Index] = treeNode;
             Map.Add(treeNode.NodeData, Count);
@@ -161,27 +162,29 @@ namespace RBTree
             Map.Remove(this[treeNode].NodeData);
         }
 
-        private void Delect(int index)
+        private void Delete(int index)
         {
             ReplaceChild(this[index].Parent, index, NullIndex);
             RemoveFromCollection(index);
             this[index] = this[NullIndex];
         }
-        public void Add(T nodeData)
+        public T Add( T nodeData)
         {
             isDirtySort = true;
-            Add(in nodeData);
+            Internal_Add(nodeData);
+            return nodeData;
         }
         private int CompareIn(int index, in T nodeData)
         {
             return CompareTo.CompareTo(in this[index].NodeData, in nodeData);
         }
-        public void Add(in T nodeData)
+        
+        private void Internal_Add(in T nodeData)
         {
             if (CompareIn(NullIndex, in nodeData) == 0)
                 return;
 
-            ref var newTreeNode = ref CreatTreeNode(in nodeData);
+            ref var newTreeNode = ref CreateTreeNode(in nodeData);
             if (this[Root].IsNull)
             {
                 newTreeNode.Color = Color.Black;
@@ -234,7 +237,7 @@ namespace RBTree
                 }
                 else
                 {
-                    treeNodeIndexTemp = this[RotataionFix(treeNodeIndexTemp, grandFather)].Index;
+                    treeNodeIndexTemp = this[RotationFix(treeNodeIndexTemp, grandFather)].Index;
                 }
             }
             this[Root].Color = Color.Black;
@@ -247,11 +250,15 @@ namespace RBTree
             LeftUp,
             RightUp
         }
+        //exclude 0 index
         public ReadOnlySpan<int> InOrderSpanIndex()
         {
             if (!isDirtySort)
             {
-                return sortList.AsReadOnlySpan().Slice(0, Map.Count);
+                unsafe
+                {
+                    return new ReadOnlySpan<int>(sortList.Ptr, Map.Count - 1);
+                }
                 //return new Span<int>(sortList.AsSpan,0,Map.Count);
             }
             if (Root == NullIndex)
@@ -298,8 +305,20 @@ namespace RBTree
                         continue;
                 }
             }
-            return sortList.AsReadOnlySpan().Slice(0, count);
-            //return new Span<int>(sortList,0,count);
+            //return sortList.AsReadOnlySpan().Slice(0, count);
+            unsafe { return new ReadOnlySpan<int>(sortList.Ptr, count); }
+        }
+
+        /// <summary>
+        /// ensure tree length > 0
+        /// </summary>
+        public ReadOnlySpan<T> Values {
+            get {
+ 
+                unsafe {
+                    return new ReadOnlySpan<T>(List.Ptr + 1, Map.Count - 1);
+                }
+            }
         }
 
         public void Print(object obj)
@@ -336,7 +355,7 @@ namespace RBTree
                 FixDelete(delectIndex);
             }
             value = this[treeNodeIndex].NodeData;
-            Delect(delectIndex);
+            Delete(delectIndex);
             //RemoveFromCollection(delectIndex);
             return true;
         }
@@ -412,11 +431,11 @@ namespace RBTree
             {
                 PrintTreeNode(new StringBuilder()
                              .Append(indent)
-                             .Append(isTail ? "©¦   " : "    "), this[index].Right, false);
+                             .Append(isTail ? "â”‚   " : "    "), this[index].Right, false);
             }
 
             //inde(indent);
-            indent.Append(isTail ? "©¸©¤©¤ " : "©°©¤©¤ ");
+            indent.Append(isTail ? "â””â”€â”€ " : "â”Œâ”€â”€ ");
 
             if (this[index].Color == Color.Red)
             {
@@ -432,7 +451,7 @@ namespace RBTree
             {
                 PrintTreeNode(new StringBuilder()
                              .Append(indent)
-                             .Append(isTail ? "    " : "©¦   "), this[index].Left, true);
+                             .Append(isTail ? "    " : "â”‚   "), this[index].Left, true);
 
             }
             Print(index);
@@ -467,7 +486,7 @@ namespace RBTree
             this[grandFather].Color = Color.Red;
         }
 
-        public int RotataionFix(int treeNodeIndex, int grandFatherIndex)
+        public int RotationFix(int treeNodeIndex, int grandFatherIndex)
         {
             if (this[treeNodeIndex].Parent == this[grandFatherIndex].Left && treeNodeIndex == this[this[treeNodeIndex].Parent].Right)
             {
@@ -567,8 +586,8 @@ namespace RBTree
 
         }
 
-        //ºóÖÃ²éÕÒ
-        //É¾³ı½Úµã×ÜÊÇÕÒÊ÷Ò¶ÖĞ,À´´úÌæÉ¾³ı½Úµã
+        //åç½®æŸ¥æ‰¾
+        //åˆ é™¤èŠ‚ç‚¹æ€»æ˜¯æ‰¾æ ‘å¶ä¸­,æ¥ä»£æ›¿åˆ é™¤èŠ‚ç‚¹
         public int FindDeleteTreeNode(int treeNodeIndex)
         {
             ref var treeNode = ref this[treeNodeIndex];
@@ -595,19 +614,19 @@ namespace RBTree
             }
             return nodeIndex;
         }
-        //·µ»ØĞèÒªÉ¾³ıµÄnode
-        public int ZeroChild(int nodeIndex)
+        //è¿”å›éœ€è¦åˆ é™¤çš„node
+        private int ZeroChild(int nodeIndex)
         {
             return nodeIndex;
         }
 
-        public int OneChild(int nodeIndex)
+        private int OneChild(int nodeIndex)
         {
             var child = this[nodeIndex].IsNullLeft ? this[nodeIndex].Right : this[nodeIndex].Left;
             SwapTreeNodeKey(nodeIndex, child);
             return child;
         }
-        public int TwoChild(int nodeIndex)
+        private int TwoChild(int nodeIndex)
         {
             var deleteIndex = FindDeleteTreeNode(nodeIndex);
             SwapTreeNodeKey(nodeIndex, deleteIndex);
@@ -615,7 +634,7 @@ namespace RBTree
             return childCount == 0 ? ZeroChild(deleteIndex) : OneChild(deleteIndex);
         }
 
-        public void ReplaceChild(int parentIndex, int treeNodeIndex, int newIndex)
+        private void ReplaceChild(int parentIndex, int treeNodeIndex, int newIndex)
         {
             if (parentIndex != NullIndex)
             {
@@ -630,7 +649,7 @@ namespace RBTree
             }
         }
 
-        public bool IndexNull(int index) => index <= 0;
+        private bool IndexNull(int index) => index <= 0;
 
         private int GetCountChildren(int treeNodeIndex)
         {
@@ -643,7 +662,7 @@ namespace RBTree
             return childerCount;
         }
 
-        public void LeftRotation(int treeNodeIndex)
+        private void LeftRotation(int treeNodeIndex)
         {
             var right = this[treeNodeIndex].Right;
             var rightLeft = this[right].Left;
@@ -663,7 +682,7 @@ namespace RBTree
 
         }
 
-        public void RightRotation(int treeNodeIndex)
+        private void RightRotation(int treeNodeIndex)
         {
             var left = this[treeNodeIndex].Left;
             var leftRight = this[left].Right;
