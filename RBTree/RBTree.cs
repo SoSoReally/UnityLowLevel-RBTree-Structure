@@ -110,7 +110,7 @@ namespace RBTree
             CompareTo = default;
             AddToCollection(TreeNode<T>.Null);
         }
-        public const int NullIndex = 0;
+        public const int NullIndex = 0;  //0索引作为null值存储,请小心处理
         public ref TreeNode<T> this[int index]
         {
             get
@@ -212,7 +212,7 @@ namespace RBTree
             }
             FixAdding(newTreeNode.Index);
         }
-        public void FixAdding(int treeNodeIndex)
+        private void FixAdding(int treeNodeIndex)
         {
 
 
@@ -312,11 +312,11 @@ namespace RBTree
         /// <summary>
         /// ensure tree length > 0
         /// </summary>
-        public ReadOnlySpan<T> Values {
+        public ReadOnlySpan<TreeNode<T>> Values {
             get {
  
                 unsafe {
-                    return new ReadOnlySpan<T>(List.Ptr + 1, Map.Count - 1);
+                    return new ReadOnlySpan<TreeNode<T>>(List.Ptr + 1, Map.Count - 1);
                 }
             }
         }
@@ -324,6 +324,10 @@ namespace RBTree
         public void Print(object obj)
         {
             UnityEngine.Debug.Log(obj);
+        }
+        public bool Contains(in T key)
+        {
+            return Map.ContainsKey(key);
         }
 
         public bool DeleteMap(in T key, out T value)
@@ -364,7 +368,7 @@ namespace RBTree
         {
             return DeleteMap(in key, out T value);
         }
-        public void SwapTreeNodeKey(int index, int other)
+        private void SwapTreeNodeKey(int index, int other)
         {
             var nd = this[index].NodeData;
             this[index].NodeData = this[other].NodeData;
@@ -374,7 +378,7 @@ namespace RBTree
 
         }
 
-        public void SwapColor(int a, int b)
+        private void SwapColor(int a, int b)
         {
             Color color = this[a].Color;
             this[a].Color = this[b].Color;
@@ -479,14 +483,14 @@ namespace RBTree
             PrintLeft(index);
         }
 
-        public void RecoloringFix(int node, int uncle, int grandFather)
+        private void RecoloringFix(int node, int uncle, int grandFather)
         {
             this[this[node].Parent].Color = Color.Black;
             this[uncle].Color = Color.Black;
             this[grandFather].Color = Color.Red;
         }
 
-        public int RotationFix(int treeNodeIndex, int grandFatherIndex)
+        private int RotationFix(int treeNodeIndex, int grandFatherIndex)
         {
             if (this[treeNodeIndex].Parent == this[grandFatherIndex].Left && treeNodeIndex == this[this[treeNodeIndex].Parent].Right)
             {
@@ -702,6 +706,23 @@ namespace RBTree
 
         }
 
+        public void Clear()
+        {
+            isDirtySort = true;
+            var buffer = List.Length;
+            List.Clear();
+            List.Length = buffer;
+            buffer = sortList.Length;
+            sortList.Clear();
+            sortList.Length = buffer;
+            Count = 0;
+            buffer = IndexQueue.Length;
+            IndexQueue.Clear();
+            IndexQueue.Length = buffer;
+            Map.Clear();
+            Root = 0;
+            AddToCollection(TreeNode<T>.Null);
+        }
         public void Dispose()
         {
             List.Dispose();
